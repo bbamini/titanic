@@ -1,0 +1,308 @@
+---
+title: "Titanic Kaggle"
+author: "Bamini Balaji"
+date: "May 28, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd("C:/Users/bamini/Documents/Coursera/Projects/titanic")
+```
+<br>
+
+### Introduction
+
+The objective is to build a binary classification model on the Titanic training dataset and use this model to predict which individuals surivived the tragedy. 
+
+Let's start by downloading the data sets and loading necessary packages.
+
+```{r, warning=FALSE, results="hide", message=FALSE}
+train <- read.csv("train.csv", na.strings = "", colClasses = c("Survived" = "factor", "Name" = "character",
+                                                               "Pclass" = "factor"))
+test <- read.csv("test.csv", na.strings = "", colClasses = c("Survived" = "factor", "Name" = "character",
+                                                             "Pclass" = "factor"))
+
+library(ggplot2)
+library(dplyr)
+library(cowplot)
+library(stringr)
+library(knitr)
+library(VIM)
+library(class)
+```
+
+<br>
+
+### Exploratory Analyses
+
+
+The dataset includes the following columns:
+
+```{r, echo=FALSE}
+str(train)
+```
+
+Let's observe the correlations between any numeric predictor variables:
+
+```{r}
+pairs(train[, c("Pclass", "Age", "SibSp", "Parch", "Fare")], col = train$Survived)
+```
+
+
+
+<br>
+
+#### Socioeconomic Status
+
+Socioeconomic status is reflected in the pclass variable. Let's look at this more carefully:
+
+```{r, echo=FALSE}
+rate <- ggplot(train, aes(as.factor(Pclass),fill = as.factor(Survived)))+
+  geom_bar(position = "fill")+
+  xlab("Ticket Class") + 
+  ylab("% Passengers") +
+  ggtitle("% Survival by Ticket Class") +
+  scale_fill_discrete(name = "Survived?", labels = c("No", "Yes"))
+
+counts <- ggplot(train, aes(as.factor(Pclass),fill = as.factor(Survived)))+
+  geom_bar()+
+  xlab("Ticket Class") + 
+  ylab("Number of Passengers") +
+  ggtitle("Survival Counts by Ticket Class") +
+  scale_fill_discrete(name = "Survived?", labels = c("No", "Yes"))
+
+plot_grid(rate, counts, ncol = 2, nrow = 1)
+```
+
+Most passengers were in the third class and of this ticket class over half the population did not survive. In contrast, the number of passengers in first class that survived exceeded the number of first class passengers who perished. Hence you were less likely to survive if you were in the lower ticket class.
+
+<br>
+
+#### Fare
+
+What about the fare that the passenger paid? 
+
+```{r, echo=FALSE}
+# ggplot(data = na.omit(train[, c("Pclass", "Fare", "Survived", "Embarked")]), aes(as.factor(Pclass), Fare))+
+#   geom_boxplot(aes(color = Embarked), na.rm = TRUE, outlier.shape = NA) +
+#   ylim(0, 200) +
+#   xlab("Ticket Class") + 
+#   ggtitle("Fare vs. Ticket Class and Port of Embarkation") +
+#   scale_color_discrete(name = "Embarked in", breaks = c("C", "Q", "S"), 
+#                       labels = c("Cherbourg", "Queenstown", "Southampton"))
+
+p <- ggplot(data = train, aes(as.factor(Pclass), Fare), color = as.factor(Pclass)) + 
+  geom_boxplot(aes(color = as.factor(Pclass)), outlier.color = NA) +
+  xlab("Ticket Class") +
+  theme(legend.position = "none")
+emb <- ggplot(data = na.omit(train[, c("Fare", "Embarked")]), aes(Embarked, Fare), color = Embarked) + 
+  geom_boxplot(aes(color = Embarked), outlier.color = NA) +
+  theme(legend.position = "none")
+
+plot_grid(p, emb, ncol = 2, nrow = 1)
+
+```
+
+Clearly the fare correlates with ticket class and to some extent with port of embarkation.
+
+```{r, echo=FALSE}
+ggplot(train, aes(Fare, fill = as.factor(Survived)))+
+  geom_density(alpha = 0.25, na.rm = TRUE)+
+  # xlab("Ticket Class") + 
+  # ylab("Total Passengers") +
+  ggtitle("Fare Density Plot by Survival") +
+  scale_fill_discrete(name = "Survived?", labels = c("No", "Yes"))
+```
+
+It appears that the distribution of those who survived is shifted to higher average fare compared to the distribution of those who perished. However this may be due to the previous shown correlations.
+
+<br>
+
+#### Age
+
+Let's look at age distributions:
+
+```{r, echo=FALSE}
+ggplot(train, aes(Age, fill = as.factor(Survived)))+
+  geom_density(alpha = 0.25, na.rm = TRUE)+
+  # xlab("Ticket Class") + 
+  # ylab("Total Passengers") +
+  ggtitle("Age Density Plot by Survival") +
+  scale_fill_discrete(name = "Survived?", labels = c("No", "Yes"))
+```
+
+This shows that your chances of survival were greater if you were under 10.
+
+<br>
+
+#### Family Aboard
+
+The variables `r names(train)[7]` and `r names(train)[8]` represent how many siblings or how many parents/children were aboard respectively. Let's combine these into a single feature for number of family members. 
+Did having family aboard increase one's odd of survival? 
+
+```{r, echo=FALSE, warning=FALSE}
+newtrain <- mutate(train, Famsize = SibSp + Parch)
+
+# sib <- ggplot(train, aes(SibSp, Survived))+
+#   geom_jitter()+
+#   xlab("Ticket Class") + 
+#   ylab("Total Passengers") +
+#   ggtitle("Survival Counts by # Siblings") +
+#   scale_fill_discrete(name = "Survived?", labels = c("No", "Yes"))
+# 
+# parents <- ggplot(train, aes(Parch,Survived))+
+#   geom_jitter()+
+#   xlab("Ticket Class") + 
+#   ylab("Total Passengers") +
+#   ggtitle("Survival Counts by Parents/Children aboard") +
+#   scale_fill_discrete(name = "Survived?", labels = c("No", "Yes"))
+# 
+# plot_grid(sib, parents, ncol = 2, nrow = 1)
+
+ggplot(newtrain, aes(Famsize, fill = as.factor(Survived)))+
+  geom_bar(position = "fill")+
+  xlab("Number of Family Members Aboard") + 
+  ylab("% Passengers") +
+  ggtitle("% Survival by Family Size") +
+  scale_fill_discrete(name = "Survived?", labels = c("No", "Yes"))
+```
+
+It appears that traveling with 1 - 3 family members improved one's odds of survival over traveling alone or traveling with a large family.
+
+<br>
+
+#### Gender
+
+Did one gender survive more than another?
+
+```{r, echo=FALSE}
+ggplot(train, aes(Sex,fill = as.factor(Survived)))+
+  geom_bar(colour = "black")+
+  xlab("Ticket Class") + 
+  ylab("Total Passengers") +
+  ggtitle("Survival Counts by Sex") +
+  scale_fill_discrete(name = "Survived?", labels = c("No", "Yes"))
+```
+
+Women were more likely to survive than men. 
+
+<br>
+
+#### Name Analyses
+
+```{r}
+head(train$Name)
+```
+
+The Name feature is interesting as it provides an individuals title. This can be useful information. 
+
+
+```{r}
+newtrain <- mutate(newtrain, title = str_replace(str_extract(Name, "[a-zA-Z]+[.]"), "[.]", ""))
+kable(t(summary(as.factor(newtrain$title))))
+```
+
+In addition to the more common tiles (such as Ms, Miss, Mr, Mrs, Master), there are entries such as Don, Jonkheer, Lady, Countess etc. Let's re-categorize these less popular entries as follows:
+
+* Capt, Col, Don, Jonkheer, Major, Sir --> Mr
+* Countess, Lady, Mme --> Mrs
+* Mlle --> Miss
+
+```{r, warning=FALSE, message=FALSE}
+update_title <- function(old_title){
+  if (is.element(old_title, c("Capt", "Col", "Don", "Jonkheer", "Major", "Sir"))) {
+    new_title <- "Mr"
+  } else if (old_title %in% c("Countess", "Lady", "Mme", "Ms")) {
+    new_title <- "Mrs"
+  } else if (old_title == "Mlle") {
+    new_title <- "Miss"
+  } else if (old_title %in% c("Dr", "Master", "Miss", "Mr", "Mrs", "Ms", "Rev")) {
+    new_title <- old_title
+  }
+  return(new_title)
+}
+
+newtitles <- sapply(newtrain$title, update_title)
+newtrain$title <- as.factor(newtitles)
+
+kable(t(summary(newtrain$title)))
+```
+
+<br>
+
+### Missing Data
+
+Several features have missing data. The entire training data set has `r dim(train)[1]` observations.
+
+```{r}
+aggr(train, prop = FALSE, numbers = TRUE, combined = TRUE, sortVars = TRUE)
+```
+
+
+For the purposes of this analysis, let's omit the Cabin feature because too much information is missing.
+Let's try to impute the missing values for Age and Embarked.
+
+<br>
+
+#### Port of Embarkation
+
+Let's try to deduce the missing Port of embarkation 
+
+```{r}
+subset(train, is.na(Embarked))
+```
+
+It appears that these two women were not accompanied by any family. However we do have information on their fare and ticket class. 
+
+Let's try using k-nearest neighbors on the fare where ticket class is 1 to predict port of embarkation. Note Pclass is not included for knn because it is categorical and we shouldn't consider information from other ticket classese when these two individuals were in Pclass = 1.
+
+```{r}
+ggplot(train, aes(Pclass, Fare, color = Embarked)) + geom_jitter() + geom_hline(yintercept = 80, color = "black")
+pclass1 <- filter(train, Pclass == 1)
+predictors <- select(pclass1, Fare)
+missing_emb <- is.na(pclass1$Embarked)
+knn(data.frame(predictors[!missing_emb,]), data.frame(predictors[missing_emb,]), pclass1$Embarked[!missing_emb], k = as.integer(sqrt(dim(pclass1)[1])))
+```
+
+
+We predict that the individuals likely embarked from Southampton.
+Based on some [research] (https://www.encyclopedia-titanica.org/titanic-survivor/martha-evelyn-stone.html) we can see that these two passengers did in fact boarded from Southampton! 
+
+
+```{r}
+newtrain <- mutate(newtrain, Embark_all = Embarked)
+newtrain$Embark_all[which(is.na(newtrain$Embark_all))] <- "S"
+```
+
+
+
+<br>
+
+#### Impute Age
+
+Let's estimate the missing ages using a linear model. 
+
+* log(Age) was used in the model to prevent getting negative age estimates
+* Predictors were selected based on significance in the model. For example, Fare and Parch were excluded because they were not significant predictors.
+
+```{r}
+missing_age <- is.na(newtrain$Age)
+train_age <- newtrain[!missing_age, ]
+
+fit_age <- lm(log(Age) ~ SibSp +  title + Pclass + Embark_all, data = train_age)
+model_age <- predict(fit_age, train_age)
+plot(train_age$Age, exp(model_age))
+abline(a = 0, b = 1, col = 2)
+summary(fit_age)
+
+newage <- round(exp(predict(fit_age, newtrain)))
+
+newtrain <- newtrain %>% mutate(tempage = newage) %>% 
+  mutate(NewAge = ifelse(is.na(Age), tempage, Age)) %>% 
+  select(-tempage)
+```
+<br>
+
+### Prediction Model
+
