@@ -30,6 +30,7 @@ library(stringr)
 library(knitr)
 library(VIM)
 library(class)
+library(caret)
 ```
 
 <br>
@@ -138,7 +139,7 @@ This shows that your chances of survival were greater if you were under 10.
 
 #### Family Aboard
 
-The variables `r names(train)[7]` and `r names(train)[8]` represent how many siblings or how many parents/children were aboard respectively. Let's combine these into a single feature for number of family members. 
+The variables `r names(train)[7]` and `r names(train)[8]` represent how many siblings/spouses or how many parents/children were aboard respectively. Let's combine these into a single feature for number of family members. 
 Did having family aboard increase one's odd of survival? 
 
 ```{r, echo=FALSE, warning=FALSE}
@@ -169,6 +170,8 @@ ggplot(newtrain, aes(Famsize, fill = as.factor(Survived)))+
 ```
 
 It appears that traveling with 1 - 3 family members improved one's odds of survival over traveling alone or traveling with a large family.
+
+
 
 <br>
 
@@ -213,7 +216,7 @@ In addition to the more common tiles (such as Ms, Miss, Mr, Mrs, Master), there 
 update_title <- function(old_title){
   if (is.element(old_title, c("Capt", "Col", "Don", "Jonkheer", "Major", "Sir"))) {
     new_title <- "Mr"
-  } else if (old_title %in% c("Countess", "Lady", "Mme", "Ms")) {
+  } else if (old_title %in% c("Countess", "Lady", "Mme", "Ms", "Dona")) {
     new_title <- "Mrs"
   } else if (old_title == "Mlle") {
     new_title <- "Miss"
@@ -230,6 +233,17 @@ kable(t(summary(newtrain$title)))
 ```
 
 <br>
+
+
+#### Family Status
+
+
+The `r names(train)[8]` parameter is confusing because it suggests that the individual is traveling with either a child or a parent. Let's see if we can deconvolute that using the title.
+
+
+
+
+
 
 ### Missing Data
 
@@ -255,7 +269,7 @@ subset(train, is.na(Embarked))
 
 It appears that these two women were not accompanied by any family. However we do have information on their fare and ticket class. 
 
-Let's try using k-nearest neighbors on the fare where ticket class is 1 to predict port of embarkation. Note Pclass is not included for knn because it is categorical and we shouldn't consider information from other ticket classese when these two individuals were in Pclass = 1.
+Let's try using k-nearest neighbors on the fare where ticket class is 1 to predict port of embarkation. Note Pclass is not included for knn because it is categorical and we shouldn't consider information from other ticket classes when these two individuals were in Pclass = 1.
 
 ```{r}
 ggplot(train, aes(Pclass, Fare, color = Embarked)) + geom_jitter() + geom_hline(yintercept = 80, color = "black")
@@ -292,7 +306,7 @@ train_age <- newtrain[!missing_age, ]
 
 fit_age <- lm(log(Age) ~ SibSp +  title + Pclass + Embark_all, data = train_age)
 model_age <- predict(fit_age, train_age)
-plot(train_age$Age, exp(model_age))
+plot(train_age$Age, exp(model_age), xlab = "Actual Age", ylab = "Model Age")
 abline(a = 0, b = 1, col = 2)
 summary(fit_age)
 
@@ -305,4 +319,72 @@ newtrain <- newtrain %>% mutate(tempage = newage) %>%
 <br>
 
 ### Prediction Model
+<br>
 
+#### Cleaning Test Data
+
+
+Let's start by creating the title column.
+
+```{r}
+newtest <- mutate(test, title = str_replace(str_extract(Name, "[a-zA-Z]+[.]"), "[.]", ""))
+kable(t(summary(as.factor(newtest$title))))
+
+newtitles <- sapply(newtest$title, update_title)
+newtest$title <- as.factor(newtitles)
+```
+
+
+Now let's check for missing information in the test data set. 
+
+```{r}
+aggr(newtest, prop = FALSE, numbers = TRUE, combined = TRUE, sortVars = TRUE)
+```
+
+We can impute missing age values using the same model prepared in the training data set.
+
+
+```{r}
+#Renaming columns to match the model
+
+newtest <- rename(newtest, Embark_all = Embarked)
+
+newtestage <- round(exp(predict(fit_age, newtest)))
+
+newtest <- newtest %>% mutate(tempage = newtestage) %>% 
+  mutate(NewAge = ifelse(is.na(Age), tempage, Age)) %>% 
+  select(-tempage)
+```
+<br>
+
+
+Now let's impute the missing Fare value in the test data set. 
+As shown before, fare is dependent on Pclass and port of embarkation. 
+
+```{r}
+missingfare <- subset(newtest, is.na(Fare))
+
+fit_fare <- lm(Fare ~ Pclass + Embark_all, newtrain)
+model_fare <- predict(fit_fare, missingfare)
+
+newtest$Fare[as.numeric(rownames(missingfare))] = model_fare
+```
+
+
+#### Approach
+
+The approach is to create a few models and determine which would be the best model to predict the test set.
+Here are the models:
+
+1. Bagging with Decision Trees
+2. Random Forest
+3. Support Vector Machine
+
+In order to determine the best model, let's use cross validation. 
+
+```{r}
+
+```
+
+
+#### Predicting with Trees
