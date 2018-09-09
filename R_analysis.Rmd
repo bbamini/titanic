@@ -31,6 +31,9 @@ library(knitr)
 library(VIM)
 library(class)
 library(caret)
+library(MASS)
+library(randomForest)
+library(e1071)
 ```
 
 <br>
@@ -209,7 +212,7 @@ kable(t(summary(as.factor(newtrain$title))))
 In addition to the more common tiles (such as Ms, Miss, Mr, Mrs, Master), there are entries such as Don, Jonkheer, Lady, Countess etc. Let's re-categorize these less popular entries as follows:
 
 * Capt, Col, Don, Jonkheer, Major, Sir --> Mr
-* Countess, Lady, Mme --> Mrs
+* Countess, Lady, Mme, Ms, Dona --> Mrs
 * Mlle --> Miss
 
 ```{r, warning=FALSE, message=FALSE}
@@ -274,7 +277,7 @@ Let's try using k-nearest neighbors on the fare where ticket class is 1 to predi
 ```{r}
 ggplot(train, aes(Pclass, Fare, color = Embarked)) + geom_jitter() + geom_hline(yintercept = 80, color = "black")
 pclass1 <- filter(train, Pclass == 1)
-predictors <- select(pclass1, Fare)
+predictors <- dplyr::select(pclass1, Fare)
 missing_emb <- is.na(pclass1$Embarked)
 knn(data.frame(predictors[!missing_emb,]), data.frame(predictors[missing_emb,]), pclass1$Embarked[!missing_emb], k = as.integer(sqrt(dim(pclass1)[1])))
 ```
@@ -314,7 +317,7 @@ newage <- round(exp(predict(fit_age, newtrain)))
 
 newtrain <- newtrain %>% mutate(tempage = newage) %>% 
   mutate(NewAge = ifelse(is.na(Age), tempage, Age)) %>% 
-  select(-tempage)
+  dplyr::select(-tempage)
 ```
 <br>
 
@@ -353,7 +356,7 @@ newtestage <- round(exp(predict(fit_age, newtest)))
 
 newtest <- newtest %>% mutate(tempage = newtestage) %>% 
   mutate(NewAge = ifelse(is.na(Age), tempage, Age)) %>% 
-  select(-tempage)
+  dplyr::select(-tempage)
 ```
 <br>
 
@@ -376,15 +379,56 @@ newtest$Fare[as.numeric(rownames(missingfare))] = model_fare
 The approach is to create a few models and determine which would be the best model to predict the test set.
 Here are the models:
 
-1. Bagging with Decision Trees
-2. Random Forest
-3. Support Vector Machine
+1. Logistic Regression
+2. Linear Discriminant Analysis
+3. Bagging with Decision Trees
+4. Random Forest
+5. Support Vector Machine
 
-In order to determine the best model, let's use cross validation. 
+In order to determine the best model, let's perform cross validation using 25% of the training data set. 
 
 ```{r}
-
+set.seed(101)
+train_subset <- createDataPartition(y = newtrain$Survived, p = 0.75, list = FALSE)
+drop.cols <- c('PassengerId', 'Name', 'Age', 'Ticket', 'Cabin', 'Embarked', 'Famsize')
+newtrain_rev <- dplyr::select(newtrain, -one_of(drop.cols))
+training <- newtrain_rev[train_subset, ]
+validation <- newtrain_rev[-train_subset, ]
 ```
 
 
-#### Predicting with Trees
+#### Prediction Models
+
+Let's build the models and evaluate the accuracy of each model's prediction against the validation set
+
+
+```{r, message=FALSE, warning=FALSE}
+# Logistic Regression
+glm_fit <- glm(Survived ~ ., family = binomial(link='logit'), data = training)
+glm_fit_simple <- glm(Survived ~ Pclass + Sex + SibSp + Parch + Fare + Embark_all + NewAge, 
+                      family = binomial(link='logit'), data = training)
+
+# Linear Discriminant Analysis
+lda_fit <- lda(Survived ~ ., data = training)
+
+# Bagging with Decision Trees
+bag_fit <- train(Survived ~ ., data = training, method = "treebag")
+
+# Random Forest
+rf_fit <- train(Survived ~ ., data = training, method = "rf")
+
+# Support Vector Machines
+svm_fit <- svm(Survived ~ ., data = training, kernel = "linear")
+
+CM_glm <- confusionMatrix(validation$Survived, as.factor(round(predict(glm_fit, validation, type = "response"))))
+CM_glm_simple <- confusionMatrix(validation$Survived, as.factor(round(predict(glm_fit_simple, validation, type = "response"))))
+CM_lda <- confusionMatrix(validation$Survived, predict(lda_fit, validation)$class)
+CM_bag <- confusionMatrix(validation$Survived, predict(bag_fit, validation))
+CM_rf <- confusionMatrix(validation$Survived, predict(rf_fit, validation))
+CM_svm <- confusionMatrix(validation$Survived, predict(svm_fit, validation))
+
+# Calculate model accuracies
+sapply(list(glm = CM_glm, glm_simple = CM_glm_simple, lda = CM_lda, bagging = CM_bag, RF = CM_rf, SVM = CM_svm), function(x) x$overall["Accuracy"])
+
+```
+
