@@ -238,16 +238,6 @@ kable(t(summary(newtrain$title)))
 <br>
 
 
-#### Family Status
-
-
-The `r names(train)[8]` parameter is confusing because it suggests that the individual is traveling with either a child or a parent. Let's see if we can deconvolute that using the title.
-
-
-
-
-
-
 ### Missing Data
 
 Several features have missing data. The entire training data set has `r dim(train)[1]` observations.
@@ -288,8 +278,7 @@ Based on some [research] (https://www.encyclopedia-titanica.org/titanic-survivor
 
 
 ```{r}
-newtrain <- mutate(newtrain, Embark_all = Embarked)
-newtrain$Embark_all[which(is.na(newtrain$Embark_all))] <- "S"
+newtrain$Embarked[which(is.na(newtrain$Embarked))] <- "S"
 ```
 
 
@@ -298,26 +287,24 @@ newtrain$Embark_all[which(is.na(newtrain$Embark_all))] <- "S"
 
 #### Impute Age
 
-Let's estimate the missing ages using a linear model. 
+It's hard to estimate the missing ages using a linear model because none of the continous predictors would logically correlate. 
+However, the title likely correlates on average with the age. So let's impute ages as grouped averages by title. 
 
-* log(Age) was used in the model to prevent getting negative age estimates
-* Predictors were selected based on significance in the model. For example, Fare and Parch were excluded because they were not significant predictors.
+```{r, echo=FALSE}
+ggplot(newtrain, aes(Age, fill = as.factor(title)))+
+  geom_density(alpha = 0.25, na.rm = TRUE)+
+  ggtitle("Age Density Plot by Title")+
+  scale_fill_discrete(name = "Title", labels = levels(newtrain$title))
+```
+
 
 ```{r}
 missing_age <- is.na(newtrain$Age)
 train_age <- newtrain[!missing_age, ]
+average_age <- aggregate(train_age$Age, by=list(train_age$title), mean, na.rm = TRUE)
 
-fit_age <- lm(log(Age) ~ SibSp +  title + Pclass + Embark_all, data = train_age)
-model_age <- predict(fit_age, train_age)
-plot(train_age$Age, exp(model_age), xlab = "Actual Age", ylab = "Model Age")
-abline(a = 0, b = 1, col = 2)
-summary(fit_age)
-
-newage <- round(exp(predict(fit_age, newtrain)))
-
-newtrain <- newtrain %>% mutate(tempage = newage) %>% 
-  mutate(NewAge = ifelse(is.na(Age), tempage, Age)) %>% 
-  dplyr::select(-tempage)
+impute.mean <- function(x) replace(x, is.na(x), round(mean(x, na.rm = TRUE)))
+newtrain <- newtrain %>% group_by(title) %>% mutate(Age = impute.mean(Age))
 ```
 <br>
 
@@ -344,19 +331,27 @@ Now let's check for missing information in the test data set.
 aggr(newtest, prop = FALSE, numbers = TRUE, combined = TRUE, sortVars = TRUE)
 ```
 
-We can impute missing age values using the same model prepared in the training data set.
+We can impute missing age values using the same method.
 
 
 ```{r}
 #Renaming columns to match the model
 
-newtest <- rename(newtest, Embark_all = Embarked)
+newage <- c()
+for (i in 1:dim(newtest)[1]) {
+  if (is.na(newtest$Age[i])) {
+    if (newtest$title[i]== "Dr" ) {newage[i] <- 42.00}
+    if (newtest$title[i]== "Master" ) {newage[i] <- 5.00}
+    if (newtest$title[i]== "Miss" ) {newage[i] <- 22.00}
+    if (newtest$title[i]== "Mr" ) {newage[i] <- 33.00}
+    if (newtest$title[i]== "Mrs" ) {newage[i] <- 36.00}
+    if (newtest$title[i]== "Rev" ) {newage[i] <- 43.00}
+  } else {
+    newage[i] <- newtest$Age[i]
+  }
+}
 
-newtestage <- round(exp(predict(fit_age, newtest)))
-
-newtest <- newtest %>% mutate(tempage = newtestage) %>% 
-  mutate(NewAge = ifelse(is.na(Age), tempage, Age)) %>% 
-  dplyr::select(-tempage)
+newtest <- mutate(newtest, Age = newage)
 ```
 <br>
 
@@ -367,7 +362,7 @@ As shown before, fare is dependent on Pclass and port of embarkation.
 ```{r}
 missingfare <- subset(newtest, is.na(Fare))
 
-fit_fare <- lm(Fare ~ Pclass + Embark_all, newtrain)
+fit_fare <- lm(Fare ~ Pclass + Embarked, newtrain)
 model_fare <- predict(fit_fare, missingfare)
 
 newtest$Fare[as.numeric(rownames(missingfare))] = model_fare
@@ -390,7 +385,7 @@ In order to determine the best model, let's perform cross validation using 25% o
 ```{r}
 set.seed(101)
 train_subset <- createDataPartition(y = newtrain$Survived, p = 0.75, list = FALSE)
-drop.cols <- c('PassengerId', 'Name', 'Age', 'Ticket', 'Cabin', 'Embarked', 'Famsize')
+drop.cols <- c('PassengerId', 'Name', 'Ticket', 'Cabin', 'Famsize')
 newtrain_rev <- dplyr::select(newtrain, -one_of(drop.cols))
 training <- newtrain_rev[train_subset, ]
 validation <- newtrain_rev[-train_subset, ]
@@ -405,7 +400,7 @@ Let's build the models and evaluate the accuracy of each model's prediction agai
 ```{r, message=FALSE, warning=FALSE}
 # Logistic Regression
 glm_fit <- glm(Survived ~ ., family = binomial(link='logit'), data = training)
-glm_fit_simple <- glm(Survived ~ Pclass + Sex + SibSp + Parch + Fare + Embark_all + NewAge, 
+glm_fit_simple <- glm(Survived ~ Pclass + Sex + SibSp + Parch + Fare + Embarked + Age, 
                       family = binomial(link='logit'), data = training)
 
 # Linear Discriminant Analysis
