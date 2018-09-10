@@ -368,6 +368,7 @@ model_fare <- predict(fit_fare, missingfare)
 newtest$Fare[as.numeric(rownames(missingfare))] = model_fare
 ```
 
+<br>
 
 #### Approach
 
@@ -391,6 +392,7 @@ training <- newtrain_rev[train_subset, ]
 validation <- newtrain_rev[-train_subset, ]
 ```
 
+<br>
 
 #### Prediction Models
 
@@ -414,6 +416,8 @@ rf_fit <- train(Survived ~ ., data = training, method = "rf")
 
 # Support Vector Machines
 svm_fit <- svm(Survived ~ ., data = training, kernel = "linear")
+svm_fit_simple <- svm(Survived ~ Pclass + Sex + SibSp + Parch + Fare + Embarked + Age,
+                      data = training, kernel = "linear")
 
 CM_glm <- confusionMatrix(validation$Survived, as.factor(round(predict(glm_fit, validation, type = "response"))))
 CM_glm_simple <- confusionMatrix(validation$Survived, as.factor(round(predict(glm_fit_simple, validation, type = "response"))))
@@ -421,9 +425,39 @@ CM_lda <- confusionMatrix(validation$Survived, predict(lda_fit, validation)$clas
 CM_bag <- confusionMatrix(validation$Survived, predict(bag_fit, validation))
 CM_rf <- confusionMatrix(validation$Survived, predict(rf_fit, validation))
 CM_svm <- confusionMatrix(validation$Survived, predict(svm_fit, validation))
+CM_svm_simple <- confusionMatrix(validation$Survived, predict(svm_fit_simple, validation))
 
 # Calculate model accuracies
-sapply(list(glm = CM_glm, glm_simple = CM_glm_simple, lda = CM_lda, bagging = CM_bag, RF = CM_rf, SVM = CM_svm), function(x) x$overall["Accuracy"])
+sapply(list(glm = CM_glm, glm_simple = CM_glm_simple, lda = CM_lda, bagging = CM_bag, RF = CM_rf, SVM = CM_svm, SVM_simple = CM_svm_simple), 
+       function(x) x$overall["Accuracy"])
+
+```
+
+<br>
+
+#### Test Set Prediction
+
+```{r}
+drop.cols <- c('PassengerId', 'Name', 'Ticket', 'Cabin')
+newtest_rev <- dplyr::select(newtest, -one_of(drop.cols)) 
+
+glm_pred <- data.frame(PassengerId = newtest$PassengerId, Survived = as.factor(round(predict(glm_fit, newtest_rev, type = "response"))))
+glm_sim_pred <- data.frame(PassengerId = newtest$PassengerId, Survived = as.factor(round(predict(glm_fit_simple, newtest_rev, type = "response"))))
+lda_pred <- data.frame(PassengerId = newtest$PassengerId, Survived = predict(lda_fit, newtest_rev)$class)
+bag_pred <- data.frame(PassengerId = newtest$PassengerId, Survived = predict(bag_fit, newtest_rev))
+rf_pred <- data.frame(PassengerId = newtest$PassengerId, Survived = predict(rf_fit, newtest_rev))
+svm_pred <- data.frame(PassengerId = newtest$PassengerId, Survived = predict(svm_fit, newtest_rev))
+svm_sim_pred <- data.frame(PassengerId = newtest$PassengerId, Survived = predict(svm_fit_simple, newtest_rev))
+```
+
+```{r, echo=FALSE}
+# write.csv(glm_pred, file = "glm_pred.csv", row.names = FALSE)
+# write.csv(glm_sim_pred, file = "glm_sim_pred.csv", row.names = FALSE)
+# write.csv(lda_pred, file = "lda_pred.csv", row.names = FALSE)
+# write.csv(bag_pred, file = "bag_pred.csv", row.names = FALSE)
+# write.csv(rf_pred, file = "rf_pred.csv", row.names = FALSE)
+# write.csv(svm_pred, file = "svm_pred.csv", row.names = FALSE)
+# write.csv(svm_sim_pred, file = "svm_sim_pred.csv", row.names = FALSE)
 
 ```
 
