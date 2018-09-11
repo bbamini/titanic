@@ -136,7 +136,8 @@ ggplot(train, aes(Age, fill = as.factor(Survived)))+
   scale_fill_discrete(name = "Survived?", labels = c("No", "Yes"))
 ```
 
-This shows that your chances of survival were greater if you were under 10.
+This shows that your chances of survival were greater if you were under 10. Let's create a logical variable for age under 10. 
+
 
 <br>
 
@@ -145,9 +146,11 @@ This shows that your chances of survival were greater if you were under 10.
 The variables `r names(train)[7]` and `r names(train)[8]` represent how many siblings/spouses or how many parents/children were aboard respectively. Let's combine these into a single feature for number of family members. 
 Did having family aboard increase one's odd of survival? 
 
-```{r, echo=FALSE, warning=FALSE}
+```{r, warning=FALSE}
 newtrain <- mutate(train, Famsize = SibSp + Parch)
+```
 
+```{r, echo=FALSE, warning=FALSE}
 # sib <- ggplot(train, aes(SibSp, Survived))+
 #   geom_jitter()+
 #   xlab("Ticket Class") + 
@@ -172,7 +175,13 @@ ggplot(newtrain, aes(Famsize, fill = as.factor(Survived)))+
   scale_fill_discrete(name = "Survived?", labels = c("No", "Yes"))
 ```
 
-It appears that traveling with 1 - 3 family members improved one's odds of survival over traveling alone or traveling with a large family.
+It appears that traveling with 1 - 3 family members improved one's odds of survival over traveling alone or traveling with a large family. So let's create a factor variable of family size with three categories 0, 1-3, and greater than or equal to 4. 
+
+```{r}
+newtrain <- mutate(newtrain, nfamily = ifelse(Famsize == 0, "none", ifelse(
+  Famsize > 3, "large", "small")))
+```
+
 
 
 
@@ -192,6 +201,33 @@ ggplot(train, aes(Sex,fill = as.factor(Survived)))+
 ```
 
 Women were more likely to survive than men. 
+
+<br>
+
+
+#### Port of Embarkation
+
+Did the port of embarkation matter for survival odds?
+
+```{r, echo=FALSE}
+rate <- ggplot(train, aes(as.factor(Embarked),fill = as.factor(Survived)))+
+  geom_bar(position = "fill")+
+  xlab("Ticket Class") + 
+  ylab("% Passengers") +
+  ggtitle("% Survival by Origin City") +
+  scale_fill_discrete(name = "Survived?", labels = c("No", "Yes"))
+
+counts <- ggplot(train, aes(as.factor(Embarked),fill = as.factor(Survived)))+
+  geom_bar()+
+  xlab("Ticket Class") + 
+  ylab("Number of Passengers") +
+  ggtitle("Survival Counts by Origin City") +
+  scale_fill_discrete(name = "Survived?", labels = c("No", "Yes"))
+
+plot_grid(rate, counts, ncol = 2, nrow = 1)
+```
+
+It appears that the port of embarkation did not have a significant effect on survival odds.
 
 <br>
 
@@ -306,6 +342,15 @@ average_age <- aggregate(train_age$Age, by=list(train_age$title), mean, na.rm = 
 impute.mean <- function(x) replace(x, is.na(x), round(mean(x, na.rm = TRUE)))
 newtrain <- newtrain %>% group_by(title) %>% mutate(Age = impute.mean(Age))
 ```
+
+As stated previously, let's create the logical variable for age under 10.
+
+```{r}
+newtrain <- mutate(newtrain, Young = ifelse(Age > 10, FALSE, TRUE))
+```
+
+
+
 <br>
 
 ### Prediction Model
@@ -322,6 +367,9 @@ kable(t(summary(as.factor(newtest$title))))
 
 newtitles <- sapply(newtest$title, update_title)
 newtest$title <- as.factor(newtitles)
+
+newtest <- mutate(newtest, Famsize = SibSp + Parch)
+newtest <- mutate(newtest, nfamily = ifelse(Famsize == 0, "none", ifelse(Famsize > 3, "large", "small")))
 ```
 
 
@@ -352,6 +400,8 @@ for (i in 1:dim(newtest)[1]) {
 }
 
 newtest <- mutate(newtest, Age = newage)
+
+newtest <- mutate(newtest, Young = ifelse(Age > 10, FALSE, TRUE))
 ```
 <br>
 
@@ -401,22 +451,27 @@ Let's build the models and evaluate the accuracy of each model's prediction agai
 
 ```{r, message=FALSE, warning=FALSE}
 # Logistic Regression
-glm_fit <- glm(Survived ~ ., family = binomial(link='logit'), data = training)
-glm_fit_simple <- glm(Survived ~ Pclass + Sex + SibSp + Parch + Fare + Embarked + Age, 
+glm_fit <- glm(Survived ~ Pclass + Sex + SibSp + Parch + Fare + Age + Embarked, 
+               family = binomial(link='logit'), data = training)
+glm_fit_simple <- glm(Survived ~ Pclass + Sex + Fare + Young + nfamily + title, 
                       family = binomial(link='logit'), data = training)
 
 # Linear Discriminant Analysis
-lda_fit <- lda(Survived ~ ., data = training)
+lda_fit <- lda(Survived ~ Pclass + Sex + Fare + Young + nfamily + title, 
+               data = training)
 
 # Bagging with Decision Trees
-bag_fit <- train(Survived ~ ., data = training, method = "treebag")
+bag_fit <- train(Survived ~ Pclass + Sex + Fare + Young + nfamily + title, 
+                 data = training, method = "treebag")
 
 # Random Forest
-rf_fit <- train(Survived ~ ., data = training, method = "rf")
+rf_fit <- train(Survived ~ Pclass + Sex + Fare + Young + nfamily + title,
+                data = training, method = "rf")
 
 # Support Vector Machines
-svm_fit <- svm(Survived ~ ., data = training, kernel = "linear")
-svm_fit_simple <- svm(Survived ~ Pclass + Sex + SibSp + Parch + Fare + Embarked + Age,
+svm_fit <- svm(Survived ~ Pclass + Sex + SibSp + Parch + Fare + Age + Embarked, 
+               data = training, kernel = "linear")
+svm_fit_simple <- svm(Survived ~ Pclass + Sex + Fare + Young + nfamily + title,
                       data = training, kernel = "linear")
 
 CM_glm <- confusionMatrix(validation$Survived, as.factor(round(predict(glm_fit, validation, type = "response"))))
@@ -451,13 +506,13 @@ svm_sim_pred <- data.frame(PassengerId = newtest$PassengerId, Survived = predict
 ```
 
 ```{r, echo=FALSE}
-# write.csv(glm_pred, file = "glm_pred.csv", row.names = FALSE)
-# write.csv(glm_sim_pred, file = "glm_sim_pred.csv", row.names = FALSE)
-# write.csv(lda_pred, file = "lda_pred.csv", row.names = FALSE)
-# write.csv(bag_pred, file = "bag_pred.csv", row.names = FALSE)
-# write.csv(rf_pred, file = "rf_pred.csv", row.names = FALSE)
-# write.csv(svm_pred, file = "svm_pred.csv", row.names = FALSE)
-# write.csv(svm_sim_pred, file = "svm_sim_pred.csv", row.names = FALSE)
+write.csv(glm_pred, file = "glm_pred.csv", row.names = FALSE)
+write.csv(glm_sim_pred, file = "glm_sim_pred.csv", row.names = FALSE)
+write.csv(lda_pred, file = "lda_pred.csv", row.names = FALSE)
+write.csv(bag_pred, file = "bag_pred.csv", row.names = FALSE)
+write.csv(rf_pred, file = "rf_pred.csv", row.names = FALSE)
+write.csv(svm_pred, file = "svm_pred.csv", row.names = FALSE)
+write.csv(svm_sim_pred, file = "svm_sim_pred.csv", row.names = FALSE)
 
 ```
 
