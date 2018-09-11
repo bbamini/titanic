@@ -136,7 +136,7 @@ ggplot(train, aes(Age, fill = as.factor(Survived)))+
   scale_fill_discrete(name = "Survived?", labels = c("No", "Yes"))
 ```
 
-This shows that your chances of survival were greater if you were under 10. Let's create a logical variable for age under 10. 
+This shows that your chances of survival were greater if you were under 17 and worse if you are between 17 and 33. It may be valuable to separate age groups. 
 
 
 <br>
@@ -343,10 +343,10 @@ impute.mean <- function(x) replace(x, is.na(x), round(mean(x, na.rm = TRUE)))
 newtrain <- newtrain %>% group_by(title) %>% mutate(Age = impute.mean(Age))
 ```
 
-As stated previously, let's create the logical variable for age under 10.
+As stated previously, let's create the age group variable.
 
 ```{r}
-newtrain <- mutate(newtrain, Young = ifelse(Age > 10, FALSE, TRUE))
+newtrain <- mutate(newtrain, AgeGroup = ifelse(Age < 17, "young", ifelse(Age > 33, "midage", "older")))
 ```
 
 
@@ -401,7 +401,7 @@ for (i in 1:dim(newtest)[1]) {
 
 newtest <- mutate(newtest, Age = newage)
 
-newtest <- mutate(newtest, Young = ifelse(Age > 10, FALSE, TRUE))
+newtest <- mutate(newtest, AgeGroup = ifelse(Age < 17, "young", ifelse(Age > 33, "midage", "older")))
 ```
 <br>
 
@@ -453,25 +453,25 @@ Let's build the models and evaluate the accuracy of each model's prediction agai
 # Logistic Regression
 glm_fit <- glm(Survived ~ Pclass + Sex + SibSp + Parch + Fare + Age + Embarked, 
                family = binomial(link='logit'), data = training)
-glm_fit_simple <- glm(Survived ~ Pclass + Sex + Fare + Young + nfamily + title, 
+glm_fit_simple <- glm(Survived ~ Pclass + Sex + Fare + AgeGroup + nfamily + title, 
                       family = binomial(link='logit'), data = training)
 
 # Linear Discriminant Analysis
-lda_fit <- lda(Survived ~ Pclass + Sex + Fare + Young + nfamily + title, 
+lda_fit <- lda(Survived ~ Pclass + Sex + Fare + AgeGroup + nfamily + title, 
                data = training)
 
 # Bagging with Decision Trees
-bag_fit <- train(Survived ~ Pclass + Sex + Fare + Young + nfamily + title, 
+bag_fit <- train(Survived ~ Pclass + Sex + Fare + AgeGroup + nfamily + title, 
                  data = training, method = "treebag")
 
 # Random Forest
-rf_fit <- train(Survived ~ Pclass + Sex + Fare + Young + nfamily + title,
+rf_fit <- train(Survived ~ Pclass + Sex + Fare + AgeGroup + nfamily + title,
                 data = training, method = "rf")
 
 # Support Vector Machines
 svm_fit <- svm(Survived ~ Pclass + Sex + SibSp + Parch + Fare + Age + Embarked, 
                data = training, kernel = "linear")
-svm_fit_simple <- svm(Survived ~ Pclass + Sex + Fare + Young + nfamily + title,
+svm_fit_simple <- svm(Survived ~ Pclass + Sex + Fare + AgeGroup + nfamily + title,
                       data = training, kernel = "linear")
 
 CM_glm <- confusionMatrix(validation$Survived, as.factor(round(predict(glm_fit, validation, type = "response"))))
